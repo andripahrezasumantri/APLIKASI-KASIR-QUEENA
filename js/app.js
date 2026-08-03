@@ -4,7 +4,7 @@
  */
 
 // URL Web App Google Apps Script QUEENA CAKERY
-const SCRIPT_URL = "https://script.google.com/macros/s/AKfycbyscHY_oy1LO1TUpOVF7kLhXs9DjeuD3duXosRN2YYSiH5_lTh5mvUI7elhDI4XGUkx/exec";
+const SCRIPT_URL = "https://script.google.com/macros/s/AKfycbye3P3sCUVYjnEDP3x_FticyRX26wmLA_qQ8GU_yw-aonn5aGynKWiilNSwbCu5uDicXQ/exec";
 
 // Global State Management
 let productsData = [];
