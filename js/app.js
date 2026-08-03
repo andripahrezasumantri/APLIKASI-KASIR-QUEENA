@@ -4,7 +4,7 @@
  */
 
 // URL Web App Google Apps Script QUEENA CAKERY
-const SCRIPT_URL = "https://script.google.com/macros/s/AKfycbyscHY_oy0LO1TUpOVF7kLhXs9DjeuD3duXosRN2YYSiH5_lTh5mvUI7elhDI4XGUkx/exec";
+const SCRIPT_URL = "https://script.google.com/macros/s/AKfycbyscHY_oy1LO1TUpOVF7kLhXs9DjeuD3duXosRN2YYSiH5_lTh5mvUI7elhDI4XGUkx/exec";
 
 // Global State Management
 let productsData = [];
@@ -17,7 +17,7 @@ document.addEventListener("DOMContentLoaded", () => {
   loadProducts();
 });
 
-// 1. Generate TRX ID Otomatis
+// 2. Generate TRX ID Otomatis
 function generateTrxID() {
   const randomNum = Math.floor(100000 + Math.random() * 900000);
   currentTrxID = `AVD-TRX-${randomNum}`;
