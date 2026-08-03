@@ -1,15 +1,50 @@
 /**
  * QUEENA CAKERY - Frontend POS Engine
  * Integrasi Google Apps Script Web App API
+ * Ultra-Flexible Data Normalization Version
  */
 
 // URL Web App Google Apps Script QUEENA CAKERY
-const SCRIPT_URL = "https://script.google.com/macros/s/AKfycbye3P3sCUVYjnEDP3x_FticyRX26wmLA_qQ8GU_yw-aonn5aGynKWiilNSwbCu5uDicXQ/exec";
+const SCRIPT_URL = "https://script.google.com/macros/s/AKfycbyscHY_oy0LO1TUpOVF7kLhXs9DjeuD3duXosRN2YYSiH5_lTh5mvUI7elhDI4XGUkx/exec";
 
 // Global State Management
 let productsData = [];
 let cart = [];
 let currentTrxID = "";
+
+/**
+ * PINTAR: Fungsi pembaca properti objek yang kebal terhadap spasi, huruf kapital, & garis bawah
+ */
+function getVal(obj, ...possibleKeys) {
+  if (!obj || typeof obj !== 'object') return null;
+
+  // Jika data berupa Array
+  if (Array.isArray(obj)) {
+    return obj;
+  }
+
+  const keys = Object.keys(obj);
+
+  // 1. Cek langsung
+  for (let pKey of possibleKeys) {
+    if (obj[pKey] !== undefined && obj[pKey] !== null && obj[pKey] !== "") {
+      return obj[pKey];
+    }
+  }
+
+  // 2. Cek dengan normalisasi (abaikan spasi, simbol, & kapital)
+  const normalize = (str) => String(str).toLowerCase().replace(/[^a-z0-9]/g, '');
+
+  for (let pKey of possibleKeys) {
+    const normPKey = normalize(pKey);
+    const matchedKey = keys.find(k => normalize(k) === normPKey);
+    if (matchedKey && obj[matchedKey] !== undefined && obj[matchedKey] !== null && obj[matchedKey] !== "") {
+      return obj[matchedKey];
+    }
+  }
+
+  return null;
+}
 
 // Inisialisasi saat dokumen dimuat
 document.addEventListener("DOMContentLoaded", () => {
@@ -17,26 +52,34 @@ document.addEventListener("DOMContentLoaded", () => {
   loadProducts();
 });
 
-// 2. Generate TRX ID Otomatis
+// 1. Generate TRX ID Otomatis
 function generateTrxID() {
   const randomNum = Math.floor(100000 + Math.random() * 900000);
   currentTrxID = `AVD-TRX-${randomNum}`;
-  document.getElementById("trxIDDisplay").innerText = currentTrxID;
+  const trxEl = document.getElementById("trxIDDisplay");
+  if (trxEl) trxEl.innerText = currentTrxID;
 }
 
 // 2. Fetch Data Produk dari Google Sheets API
 async function loadProducts() {
   const grid = document.getElementById("productGrid");
-  
+  if (!grid) return;
+
+  grid.innerHTML = `
+    <div class="text-center py-5 text-muted">
+      <div class="spinner-border text-primary spinner-border-sm mb-2" role="status"></div>
+      <div>Memuat data barang...</div>
+    </div>`;
+
   try {
     const response = await fetch(`${SCRIPT_URL}?action=getProducts`);
     const data = await response.json();
 
-    if (data.status === "success") {
+    if (data.status === "success" && Array.isArray(data.data)) {
       productsData = data.data;
       renderProducts(productsData);
     } else {
-      grid.innerHTML = `<div class="alert alert-danger text-center">Gagal memuat produk.</div>`;
+      grid.innerHTML = `<div class="alert alert-danger text-center">Gagal memuat produk dari database.</div>`;
     }
   } catch (error) {
     console.error("Error fetching products:", error);
@@ -48,12 +91,13 @@ async function loadProducts() {
   }
 }
 
-// 3. Render Daftar Produk ke UI
+// 3. Render Daftar Produk ke UI (Kebal Mismatch Header)
 function renderProducts(items) {
   const grid = document.getElementById("productGrid");
+  if (!grid) return;
   grid.innerHTML = "";
 
-  if (items.length === 0) {
+  if (!items || items.length === 0) {
     grid.innerHTML = `<div class="text-center py-5 text-muted">Barang tidak ditemukan.</div>`;
     return;
   }
@@ -61,26 +105,38 @@ function renderProducts(items) {
   const row = document.createElement("div");
   row.className = "row g-2";
 
-  items.forEach((item) => {
+  items.forEach((item, index) => {
+    // Ekstraksi data dengan pencarian pintar
+    const barcode = String(getVal(item, 'Barcode', 'barcode', 'BarangID', 'barangID', 'KodeBarang', 'kodeBarang') || index);
+    const namaBarang = String(getVal(item, 'NamaBarang', 'namaBarang', 'Nama Barang', 'Nama', 'nama', 'Produk') || 'Tanpa Nama');
+    const kategori = String(getVal(item, 'Kategori', 'kategori') || 'Umum');
+    const satuan = String(getVal(item, 'Satuan', 'satuan') || 'Pcs');
+    
+    const rawHarga = getVal(item, 'HargaJual', 'hargaJual', 'Harga Jual', 'Harga', 'harga') || 0;
+    const hargaJual = Number(String(rawHarga).replace(/[^0-9.-]+/g, "")) || 0;
+
+    const rawStok = getVal(item, 'Stok', 'stok', 'Jumlah') || 0;
+    const stok = Number(String(rawStok).replace(/[^0-9.-]+/g, "")) || 0;
+
     const col = document.createElement("div");
     col.className = "col-6 col-md-4";
 
     col.innerHTML = `
-      <div class="card pos-card product-item p-2 h-100 position-relative" onclick="addToCart('${item.barcode}')">
+      <div class="card pos-card product-item p-2 h-100 position-relative shadow-sm" style="cursor: pointer;" onclick="addToCart('${barcode}')">
         <button type="button" class="btn btn-sm btn-danger position-absolute top-0 end-0 m-1 px-1 py-0" 
                 style="font-size: 0.7rem; z-index: 10;" 
                 title="Hapus Barang" 
-                onclick="event.stopPropagation(); hapusBarang('${item.barcode}', '${item.namaBarang}')">
+                onclick="event.stopPropagation(); hapusBarang('${barcode}', '${namaBarang.replace(/'/g, "\\'")}')">
           <i class="bi bi-x-lg"></i>
         </button>
         <div class="card-body p-1 d-flex flex-column justify-content-between">
           <div>
-            <span class="badge bg-light-sky text-primary mb-1" style="font-size: 0.65rem;">${item.kategori || 'Umum'}</span>
-            <h6 class="fw-bold mb-1 text-truncate pe-3" style="font-size: 0.85rem;" title="${item.namaBarang}">${item.namaBarang}</h6>
-            <small class="text-muted d-block" style="font-size: 0.7rem;">Stok: ${item.stok} ${item.satuan}</small>
+            <span class="badge bg-light text-primary mb-1 border" style="font-size: 0.65rem;">${kategori}</span>
+            <h6 class="fw-bold mb-1 text-truncate pe-3" style="font-size: 0.85rem;" title="${namaBarang}">${namaBarang}</h6>
+            <small class="text-muted d-block" style="font-size: 0.7rem;">Stok: ${stok} ${satuan}</small>
           </div>
           <div class="mt-2 pt-1 border-top d-flex justify-content-between align-items-center">
-            <span class="fw-bold text-primary" style="font-size: 0.85rem;">Rp ${Number(item.hargaJual).toLocaleString('id-ID')}</span>
+            <span class="fw-bold text-primary" style="font-size: 0.85rem;">Rp ${hargaJual.toLocaleString('id-ID')}</span>
             <i class="bi bi-plus-circle-fill text-primary"></i>
           </div>
         </div>
@@ -94,50 +150,68 @@ function renderProducts(items) {
 
 // 4. Filter / Pencarian Barang
 function filterBarang() {
-  const query = document.getElementById("searchInput").value.toLowerCase();
-  const filtered = productsData.filter((p) => 
-    p.namaBarang.toLowerCase().includes(query) || 
-    String(p.barcode).toLowerCase().includes(query)
-  );
+  const query = (document.getElementById("searchInput")?.value || "").toLowerCase().trim();
+  
+  const filtered = productsData.filter((p) => {
+    const nama = String(getVal(p, 'NamaBarang', 'namaBarang', 'Nama Barang', 'Nama', 'nama') || '').toLowerCase();
+    const barcode = String(getVal(p, 'Barcode', 'barcode', 'BarangID', 'barangID') || '').toLowerCase();
+    const kategori = String(getVal(p, 'Kategori', 'kategori') || '').toLowerCase();
+
+    return nama.includes(query) || barcode.includes(query) || kategori.includes(query);
+  });
+
   renderProducts(filtered);
 }
 
-// 5. Keranjang Belanja Logic
-function addToCart(barcode) {
-  const product = productsData.find((p) => String(p.barcode) === String(barcode));
+// 5. Tambah Produk ke Keranjang Belanja
+function addToCart(targetBarcode) {
+  const product = productsData.find((p) => {
+    const code = String(getVal(p, 'Barcode', 'barcode', 'BarangID', 'barangID', 'KodeBarang', 'kodeBarang') || '');
+    return code === String(targetBarcode);
+  });
+
   if (!product) return;
 
-  if (product.stok <= 0) {
-    Swal.fire("Stok Habis", `Stok untuk ${product.namaBarang} telah habis!`, "warning");
+  const barcode = String(getVal(product, 'Barcode', 'barcode', 'BarangID', 'barangID') || targetBarcode);
+  const namaBarang = String(getVal(product, 'NamaBarang', 'namaBarang', 'Nama Barang', 'Nama', 'nama') || 'Tanpa Nama');
+  
+  const rawHarga = getVal(product, 'HargaJual', 'hargaJual', 'Harga Jual', 'Harga', 'harga') || 0;
+  const hargaJual = Number(String(rawHarga).replace(/[^0-9.-]+/g, "")) || 0;
+
+  const rawStok = getVal(product, 'Stok', 'stok', 'Jumlah') || 0;
+  const stok = Number(String(rawStok).replace(/[^0-9.-]+/g, "")) || 0;
+
+  if (stok <= 0) {
+    Swal.fire("Stok Habis", `Stok untuk "${namaBarang}" telah habis!`, "warning");
     return;
   }
 
   const existingItem = cart.find((item) => String(item.barcode) === String(barcode));
 
   if (existingItem) {
-    if (existingItem.qty + 1 > product.stok) {
-      Swal.fire("Stok Kurang", `Stok maksimum untuk ${product.namaBarang} adalah ${product.stok}`, "warning");
+    if (existingItem.qty + 1 > stok) {
+      Swal.fire("Stok Kurang", `Stok maksimum untuk "${namaBarang}" adalah ${stok}`, "warning");
       return;
     }
     existingItem.qty += 1;
     existingItem.subtotal = existingItem.qty * existingItem.hargaJual;
   } else {
     cart.push({
-      barcode: product.barcode,
-      namaBarang: product.namaBarang,
-      hargaJual: Number(product.hargaJual),
+      barcode: barcode,
+      namaBarang: namaBarang,
+      hargaJual: hargaJual,
+      stokMax: stok,
       qty: 1,
-      subtotal: Number(product.hargaJual)
+      subtotal: hargaJual
     });
   }
 
   renderCart();
 }
 
+// 6. Update Jumlah (Qty) Barang di Keranjang
 function updateQty(barcode, change) {
   const item = cart.find((i) => String(i.barcode) === String(barcode));
-  const product = productsData.find((p) => String(p.barcode) === String(barcode));
-  
   if (!item) return;
 
   const newQty = item.qty + change;
@@ -147,8 +221,8 @@ function updateQty(barcode, change) {
     return;
   }
 
-  if (product && newQty > product.stok) {
-    Swal.fire("Stok Kurang", `Stok maksimum adalah ${product.stok}`, "warning");
+  if (newQty > item.stokMax) {
+    Swal.fire("Stok Kurang", `Stok maksimum adalah ${item.stokMax}`, "warning");
     return;
   }
 
@@ -157,20 +231,28 @@ function updateQty(barcode, change) {
   renderCart();
 }
 
+// 7. Hapus Barang dari Keranjang
 function removeFromCart(barcode) {
   cart = cart.filter((i) => String(i.barcode) !== String(barcode));
   renderCart();
 }
 
+// 8. Reset Seluruh Isi Keranjang
 function resetCart() {
   cart = [];
-  document.getElementById("cashInput").value = "";
-  document.getElementById("discountInput").value = "0";
+  const cashInput = document.getElementById("cashInput");
+  const discountInput = document.getElementById("discountInput");
+  
+  if (cashInput) cashInput.value = "";
+  if (discountInput) discountInput.value = "0";
+  
   renderCart();
 }
 
+// 9. Render Keranjang Belanja
 function renderCart() {
   const body = document.getElementById("cartBody");
+  if (!body) return;
   body.innerHTML = "";
 
   if (cart.length === 0) {
@@ -188,7 +270,7 @@ function renderCart() {
     const tr = document.createElement("tr");
     tr.innerHTML = `
       <td>
-        <div class="fw-semibold text-truncate" style="max-width: 150px;">${item.namaBarang}</div>
+        <div class="fw-semibold text-truncate" style="max-width: 140px;" title="${item.namaBarang}">${item.namaBarang}</div>
       </td>
       <td class="small">Rp ${item.hargaJual.toLocaleString('id-ID')}</td>
       <td class="text-center">
@@ -211,52 +293,67 @@ function renderCart() {
   hitungTotal();
 }
 
-// 6. Hitung Total Pembayaran & Kembalian
+// 10. Hitung Subtotal, Diskon, Total Bayar, dan Kembalian
 function hitungTotal() {
-  const subtotal = cart.reduce((acc, curr) => acc + curr.subtotal, 0);
-  const discount = Number(document.getElementById("discountInput").value) || 0;
-  const cash = Number(document.getElementById("cashInput").value) || 0;
+  const subtotal = cart.reduce((acc, curr) => acc + (Number(curr.subtotal) || 0), 0);
+  const discount = Number(document.getElementById("discountInput")?.value) || 0;
+  const cash = Number(document.getElementById("cashInput")?.value) || 0;
 
   const grandTotal = Math.max(0, subtotal - discount);
   const change = Math.max(0, cash - grandTotal);
 
-  document.getElementById("grandTotalDisplay").innerText = `Rp ${grandTotal.toLocaleString('id-ID')}`;
-  document.getElementById("changeDisplay").innerText = `Rp ${change.toLocaleString('id-ID')}`;
+  const grandTotalEl = document.getElementById("grandTotalDisplay");
+  const changeEl = document.getElementById("changeDisplay");
+
+  if (grandTotalEl) grandTotalEl.innerText = `Rp ${grandTotal.toLocaleString('id-ID')}`;
+  if (changeEl) changeEl.innerText = `Rp ${change.toLocaleString('id-ID')}`;
 }
 
-// 7. Simpan Barang Baru ke Database
+// 11. Simpan Barang Baru ke Database
 async function simpanBarangBaru() {
-  const barcode = document.getElementById("inBarcode").value;
-  const namaBarang = document.getElementById("inNamaBarang").value;
-  const kategori = document.getElementById("inKategori").value;
-  const satuan = document.getElementById("inSatuan").value;
-  const hargaModal = document.getElementById("inHargaModal").value;
-  const hargaJual = document.getElementById("inHargaJual").value;
-  const stok = document.getElementById("inStok").value;
-  const expired = document.getElementById("inExpired").value;
+  const barcode = document.getElementById("inBarcode")?.value.trim();
+  const namaBarang = document.getElementById("inNamaBarang")?.value.trim();
+  const kategori = document.getElementById("inKategori")?.value.trim() || "Kue";
+  const satuan = document.getElementById("inSatuan")?.value.trim() || "Pcs";
+  const hargaModal = document.getElementById("inHargaModal")?.value || 0;
+  const hargaJual = document.getElementById("inHargaJual")?.value || 0;
+  const stok = document.getElementById("inStok")?.value || 0;
+  const expired = document.getElementById("inExpired")?.value || "";
 
   if (!barcode || !namaBarang || !hargaJual || !stok) {
-    Swal.fire("Lengkapi Data", "Mohon isi semua bidang yang wajib!", "warning");
+    Swal.fire("Lengkapi Data", "Mohon isi Barcode, Nama Barang, Harga Jual, dan Stok!", "warning");
     return;
   }
 
   Swal.fire({
     title: "Menyimpan...",
-    text: "Sedang menambahkan barang ke sistem",
+    text: "Sedang menambahkan barang baru ke sistem",
     allowOutsideClick: false,
     didOpen: () => Swal.showLoading()
   });
 
   const payload = {
     action: "addProduct",
-    barcode,
-    namaBarang,
-    kategori,
-    satuan,
+    data: {
+      barangID: barcode,
+      barcode: barcode,
+      kodeBarang: barcode,
+      namaBarang: namaBarang,
+      kategori: kategori,
+      satuan: satuan,
+      hargaModal: Number(hargaModal),
+      hargaJual: Number(hargaJual),
+      stok: Number(stok),
+      expired: expired
+    },
+    barcode: barcode,
+    namaBarang: namaBarang,
+    kategori: kategori,
+    satuan: satuan,
     hargaModal: Number(hargaModal),
     hargaJual: Number(hargaJual),
     stok: Number(stok),
-    expired
+    expired: expired
   };
 
   try {
@@ -268,10 +365,13 @@ async function simpanBarangBaru() {
 
     if (res.status === "success") {
       Swal.fire("Berhasil", "Barang baru berhasil disimpan!", "success");
-      document.getElementById("formTambahBarang").reset();
+      document.getElementById("formTambahBarang")?.reset();
       
-      const modal = bootstrap.Modal.getInstance(document.getElementById("modalTambahBarang"));
-      if (modal) modal.hide();
+      const modalEl = document.getElementById("modalTambahBarang");
+      if (modalEl) {
+        const modal = bootstrap.Modal.getInstance(modalEl) || new bootstrap.Modal(modalEl);
+        modal.hide();
+      }
 
       loadProducts();
     } else {
@@ -279,11 +379,11 @@ async function simpanBarangBaru() {
     }
   } catch (err) {
     console.error(err);
-    Swal.fire("Error", "Terjadi kesalahan saat menyambung ke server.", "error");
+    Swal.fire("Error", "Terjadi kesalahan koneksi ke server.", "error");
   }
 }
 
-// 8. Hapus Barang dari Katalog
+// 12. Hapus Barang dari Database
 async function hapusBarang(barcode, namaBarang) {
   const confirmDelete = await Swal.fire({
     title: "Hapus Barang?",
@@ -306,7 +406,7 @@ async function hapusBarang(barcode, namaBarang) {
   try {
     const response = await fetch(SCRIPT_URL, {
       method: "POST",
-      body: JSON.stringify({ action: "deleteProduct", barcode })
+      body: JSON.stringify({ action: "deleteProduct", barcode: barcode, data: { barangID: barcode } })
     });
     const res = await response.json();
 
@@ -322,17 +422,17 @@ async function hapusBarang(barcode, namaBarang) {
   }
 }
 
-// 9. Proses Transaksi Penjualan
+// 13. Proses Transaksi Penjualan
 async function prosesBayar() {
   if (cart.length === 0) {
     Swal.fire("Keranjang Kosong", "Pilih minimal 1 produk untuk diproses.", "warning");
     return;
   }
 
-  const subtotal = cart.reduce((acc, curr) => acc + curr.subtotal, 0);
-  const discount = Number(document.getElementById("discountInput").value) || 0;
-  const cash = Number(document.getElementById("cashInput").value) || 0;
-  const method = document.getElementById("payMethod").value;
+  const subtotal = cart.reduce((acc, curr) => acc + (Number(curr.subtotal) || 0), 0);
+  const discount = Number(document.getElementById("discountInput")?.value) || 0;
+  const cash = Number(document.getElementById("cashInput")?.value) || 0;
+  const method = document.getElementById("payMethod")?.value || "Tunai";
   const grandTotal = Math.max(0, subtotal - discount);
 
   if (method === "Tunai" && cash < grandTotal) {
@@ -341,15 +441,26 @@ async function prosesBayar() {
   }
 
   const change = Math.max(0, cash - grandTotal);
-  const kasir = document.getElementById("kasirName").innerText;
+  const kasir = document.getElementById("kasirName")?.innerText || "Kasir QUEENA CAKERY";
 
   const trxPayload = {
     action: "createTransaction",
+    data: {
+      transaksiID: currentTrxID,
+      kasir: kasir,
+      pelanggan: "Umum",
+      total: grandTotal,
+      diskon: discount,
+      bayar: cash,
+      kembali: change,
+      metode: method,
+      items: cart
+    },
     transaksiID: currentTrxID,
-    kasir,
+    kasir: kasir,
     metode: method,
     items: cart,
-    subtotal,
+    subtotal: subtotal,
     diskon: discount,
     total: grandTotal,
     bayar: cash,
@@ -357,8 +468,8 @@ async function prosesBayar() {
   };
 
   Swal.fire({
-    title: "Memproses...",
-    text: "Menyimpan transaksi ke database",
+    title: "Memproses Transaksi...",
+    text: "Menyimpan data penjualan ke database",
     allowOutsideClick: false,
     didOpen: () => Swal.showLoading()
   });
@@ -374,7 +485,7 @@ async function prosesBayar() {
       Swal.fire({
         title: "Transaksi Berhasil!",
         html: `
-          <div class="text-start p-2 bg-light rounded mb-3">
+          <div class="text-start p-2 bg-light rounded mb-3 border">
             <small class="d-block">ID: <b>${currentTrxID}</b></small>
             <small class="d-block">Total: <b>Rp ${grandTotal.toLocaleString('id-ID')}</b></small>
             <small class="d-block">Kembali: <b>Rp ${change.toLocaleString('id-ID')}</b></small>
@@ -399,17 +510,17 @@ async function prosesBayar() {
     }
   } catch (err) {
     console.error(err);
-    Swal.fire("Error", "Terjadi kesalahan saat memproses transaksi.", "error");
+    Swal.fire("Error", "Terjadi kesalahan saat menyimpan transaksi.", "error");
   }
 }
 
-// 10. Fitur Kirim Struk via WhatsApp (QUEENA CAKERY)
+// 14. Dialog Input Nomor WhatsApp
 function promptKirimWA(trxData) {
   Swal.fire({
     title: "Kirim Struk WhatsApp",
     input: "tel",
-    inputLabel: "Masukkan Nomor HP Pelanggan (Contoh: 081234567890)",
-    inputPlaceholder: "08xxxxxxxxxx",
+    inputLabel: "Masukkan Nomor HP Pelanggan",
+    inputPlaceholder: "Contoh: 081234567890",
     showCancelButton: true,
     confirmButtonText: "Kirim Sekarang",
     cancelButtonText: "Batal",
@@ -421,13 +532,13 @@ function promptKirimWA(trxData) {
   });
 }
 
+// 15. Kirim Struk via WhatsApp (QUEENA CAKERY)
 function kirimStrukWA(trxData, noHp) {
   let formattedPhone = noHp.replace(/[^0-9]/g, '');
   if (formattedPhone.startsWith('0')) {
     formattedPhone = '62' + formattedPhone.slice(1);
   }
 
-  // Header Struk - QUEENA CAKERY
   let pesan = `*--- QUEENA CAKERY ---*\n`;
   pesan += `*Nota:* ${trxData.transaksiID}\n`;
   pesan += `*Tanggal:* ${new Date().toLocaleString('id-ID')}\n`;
@@ -447,8 +558,6 @@ function kirimStrukWA(trxData, noHp) {
   pesan += `*Metode:* ${trxData.metode}\n`;
   pesan += `*Bayar:* Rp ${trxData.bayar.toLocaleString('id-ID')}\n`;
   pesan += `*Kembali:* Rp ${trxData.kembali.toLocaleString('id-ID')}\n\n`;
-  
-  // Footer Struk - QUEENA CAKERY
   pesan += `Terima kasih telah berkunjung ke QUEENA CAKERY! 🙏🏻`;
 
   const urlWA = `https://api.whatsapp.com/send?phone=${formattedPhone}&text=${encodeURIComponent(pesan)}`;
