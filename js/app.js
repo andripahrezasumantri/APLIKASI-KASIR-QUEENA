@@ -1,7 +1,7 @@
 /**
  * QUEENA CAKERY - Frontend POS Engine
  * Integrasi Google Apps Script Web App API
- * Ultra-Flexible Data Normalization Version
+ * Ultra-Flexible Data Normalization + Real-time Clock Version
  */
 
 // URL Web App Google Apps Script QUEENA CAKERY
@@ -18,21 +18,18 @@ let currentTrxID = "";
 function getVal(obj, ...possibleKeys) {
   if (!obj || typeof obj !== 'object') return null;
 
-  // Jika data berupa Array
   if (Array.isArray(obj)) {
     return obj;
   }
 
   const keys = Object.keys(obj);
 
-  // 1. Cek langsung
   for (let pKey of possibleKeys) {
     if (obj[pKey] !== undefined && obj[pKey] !== null && obj[pKey] !== "") {
       return obj[pKey];
     }
   }
 
-  // 2. Cek dengan normalisasi (abaikan spasi, simbol, & kapital)
   const normalize = (str) => String(str).toLowerCase().replace(/[^a-z0-9]/g, '');
 
   for (let pKey of possibleKeys) {
@@ -46,8 +43,37 @@ function getVal(obj, ...possibleKeys) {
   return null;
 }
 
+/**
+ * Real-Time Clock (Hari, Tanggal, Jam, Menit, Detik)
+ */
+function updateClock() {
+  const clockEl = document.getElementById("clockDisplay");
+  if (!clockEl) return;
+
+  const now = new Date();
+  const options = { 
+    weekday: 'long', 
+    day: 'numeric', 
+    month: 'long', 
+    year: 'numeric' 
+  };
+  const dateStr = now.toLocaleDateString('id-ID', options);
+  const timeStr = now.toLocaleTimeString('id-ID', { 
+    hour: '2-digit', 
+    minute: '2-digit', 
+    second: '2-digit',
+    hour12: false 
+  });
+
+  clockEl.innerHTML = `<i class="bi bi-clock me-1"></i>${dateStr} &bull; <b>${timeStr}</b>`;
+}
+
+// Jalankan jam setiap 1 detik
+setInterval(updateClock, 1000);
+
 // Inisialisasi saat dokumen dimuat
 document.addEventListener("DOMContentLoaded", () => {
+  updateClock();
   generateTrxID();
   loadProducts();
 });
@@ -106,7 +132,6 @@ function renderProducts(items) {
   row.className = "row g-2";
 
   items.forEach((item, index) => {
-    // Ekstraksi data dengan pencarian pintar
     const barcode = String(getVal(item, 'Barcode', 'barcode', 'BarangID', 'barangID', 'KodeBarang', 'kodeBarang') || index);
     const namaBarang = String(getVal(item, 'NamaBarang', 'namaBarang', 'Nama Barang', 'Nama', 'nama', 'Produk') || 'Tanpa Nama');
     const kategori = String(getVal(item, 'Kategori', 'kategori') || 'Umum');
